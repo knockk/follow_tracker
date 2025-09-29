@@ -1,0 +1,88 @@
+# .github/workflows/daily-screenshot.yml
+name: Daily Screenshot to Slack
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 매일 UTC 00:00 (한국시간 09:00)
+  workflow_dispatch: # 수동 실행 가능
+
+jobs:
+  screenshot:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install dependencies
+      run: |
+        npm install puppeteer axios form-data
+        
+    - name: Take screenshot and send to Slack
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      run: |
+        cat > screenshot.js << 'EOF'
+        const puppeteer = require('puppeteer');
+        const axios = require('axios');
+        const FormData = require('form-data');
+        const fs = require('fs');
+        
+        async function takeScreenshotAndSend() {
+          const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+          });
+          
+          const page = await browser.newPage();
+          await page.setViewport({ width: 1920, height: 1080 });
+          
+          try {
+            await page.goto('https://sub-tracer.cinamon.me/', { 
+              waitUntil: 'networkidle2',
+              timeout: 30000 
+            });
+            
+            // 페이지가 완전히 로드될 때까지 잠시 대기
+            await page.waitForTimeout(3000);
+            
+            const screenshot = await page.screenshot({ 
+              fullPage: true,
+              type: 'png'
+            });
+            
+            fs.writeFileSync('screenshot.png', screenshot);
+            
+            // Slack으로 전송
+            const form = new FormData();
+            form.append('file', fs.createReadStream('screenshot.png'));
+            form.append('channels', '#general'); // 채널명을 원하는 채널로 변경하세요
+            form.append('title', `Sub-tracer 현황 - ${new Date().toLocaleDateString('ko-KR')}`);
+            form.append('initial_comment', `매일 오전 9시 자동 스크린샷입니다. 📊`);
+            
+            await axios.post('https://slack.com/api/files.upload', form, {
+              headers: {
+                ...form.getHeaders(),
+                'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`
+              }
+            });
+            
+            console.log('Screenshot sent to Slack successfully!');
+            
+          } catch (error) {
+            console.error('Error:', error);
+            process.exit(1);
+          } finally {
+            await browser.close();
+          }
+        }
+        
+        takeScreenshotAndSend();
+        EOF
+        
+        node screenshot.js
