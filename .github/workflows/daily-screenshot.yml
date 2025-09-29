@@ -1,10 +1,8 @@
-# .github/workflows/daily-screenshot.yml
-name: Daily Screenshot to Slack
+# .github/workflows/daily-screenshot-debug.yml
+name: Daily Screenshot Debug
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # 매일 UTC 00:00 (한국시간 09:00)
-  workflow_dispatch: # 수동 실행 가능
+  workflow_dispatch: # 수동 실행만 가능 (테스트용)
 
 jobs:
   screenshot:
@@ -23,66 +21,119 @@ jobs:
       run: |
         npm install puppeteer axios form-data
         
+    - name: Check environment
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      run: |
+        echo "Node version: $(node --version)"
+        echo "NPM version: $(npm --version)"
+        echo "Token exists: $(if [ -n "$SLACK_BOT_TOKEN" ]; then echo 'Yes'; else echo 'No'; fi)"
+        echo "Token starts with xoxb: $(if [[ "$SLACK_BOT_TOKEN" == xoxb-* ]]; then echo 'Yes'; else echo 'No'; fi)"
+        
     - name: Take screenshot and send to Slack
       env:
         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       run: |
-        cat > screenshot.js << 'EOF'
+        cat > screenshot-debug.js << 'EOF'
         const puppeteer = require('puppeteer');
         const axios = require('axios');
         const FormData = require('form-data');
         const fs = require('fs');
         
         async function takeScreenshotAndSend() {
+          console.log('Starting screenshot process...');
+          
+          if (!process.env.SLACK_BOT_TOKEN) {
+            throw new Error('SLACK_BOT_TOKEN environment variable is not set');
+          }
+          
+          if (!process.env.SLACK_BOT_TOKEN.startsWith('xoxb-')) {
+            throw new Error('SLACK_BOT_TOKEN should start with xoxb-');
+          }
+          
           const browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
           });
+          
+          console.log('Browser launched successfully');
           
           const page = await browser.newPage();
           await page.setViewport({ width: 1920, height: 1080 });
           
           try {
+            console.log('Navigating to website...');
             await page.goto('https://sub-tracer.cinamon.me/', { 
               waitUntil: 'networkidle2',
               timeout: 30000 
             });
             
-            // 페이지가 완전히 로드될 때까지 잠시 대기
-            await page.waitForTimeout(3000);
+            console.log('Page loaded, waiting for content...');
+            await page.waitForTimeout(5000);
             
+            console.log('Taking screenshot...');
             const screenshot = await page.screenshot({ 
               fullPage: true,
               type: 'png'
             });
             
             fs.writeFileSync('screenshot.png', screenshot);
+            console.log('Screenshot saved successfully');
             
-            // Slack으로 전송
+            // 먼저 Slack API 테스트
+            console.log('Testing Slack API connection...');
+            const testResponse = await axios.get('https://slack.com/api/auth.test', {
+              headers: {
+                'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`
+              }
+            });
+            
+            console.log('Auth test response:', testResponse.data);
+            
+            if (!testResponse.data.ok) {
+              throw new Error(`Slack auth failed: ${testResponse.data.error}`);
+            }
+            
+            // 파일 업로드
+            console.log('Uploading file to Slack...');
             const form = new FormData();
             form.append('file', fs.createReadStream('screenshot.png'));
-            form.append('channels', '#general'); // 채널명을 원하는 채널로 변경하세요
+            form.append('channels', 'general');
             form.append('title', `Sub-tracer 현황 - ${new Date().toLocaleDateString('ko-KR')}`);
-            form.append('initial_comment', `매일 오전 9시 자동 스크린샷입니다. 📊`);
+            form.append('initial_comment', `테스트 스크린샷입니다. 📊`);
             
-            await axios.post('https://slack.com/api/files.upload', form, {
+            const uploadResponse = await axios.post('https://slack.com/api/files.upload', form, {
               headers: {
                 ...form.getHeaders(),
                 'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`
               }
             });
             
+            console.log('Upload response:', uploadResponse.data);
+            
+            if (!uploadResponse.data.ok) {
+              throw new Error(`File upload failed: ${uploadResponse.data.error}`);
+            }
+            
             console.log('Screenshot sent to Slack successfully!');
             
           } catch (error) {
-            console.error('Error:', error);
-            process.exit(1);
+            console.error('Error details:', error.message);
+            if (error.response) {
+              console.error('Response status:', error.response.status);
+              console.error('Response data:', error.response.data);
+            }
+            throw error;
           } finally {
             await browser.close();
+            console.log('Browser closed');
           }
         }
         
-        takeScreenshotAndSend();
+        takeScreenshotAndSend().catch(error => {
+          console.error('Final error:', error);
+          process.exit(1);
+        });
         EOF
         
-        node screenshot.js
+        node screenshot-debug.js
