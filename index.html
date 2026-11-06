@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5fa">
+  <meta name="description" content="X Radar — 6개 그룹과 11개 X 계정의 팔로워, 활동, 반응과 수집 품질을 비교합니다.">
+  <title>X Radar · 홀린 레이더</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#"><span class="brand-mark">X<span>↗</span></span><span>X Radar<small>HOLLIN ANALYTICS</small></span></a>
+    <div class="sidebar-label">WORKSPACE</div>
+    <a class="nav active" href="#followers">◉ <span>X 분석</span><span class="nav-tag">11</span></a>
+    <a class="nav" href="#comparison">▦ <span>그룹별 비교</span></a>
+    <a class="nav" href="#top-posts">↗ <span>인기 게시물</span></a>
+    <a class="nav" href="#quality">◎ <span>수집 품질</span></a>
+    <div class="sidebar-note"><span class="pulse"></span>데이터를 투명하게<small>미수집과 실제 0을 구분합니다.<br>모든 날짜는 한국 표준시입니다.</small></div>
+    <div class="sidebar-footer">X API / X Radar <span>01</span></div>
+  </aside>
+  <main>
+    <header class="page-heading"><div><div class="eyebrow">SOCIAL INTELLIGENCE <span>/</span> X ANALYTICS</div><h1>팬덤의 움직임을 한눈에<span>.</span></h1><p>팔로워부터 게시물 반응까지, 같은 기준으로 비교하세요.</p></div><span class="source-tag" id="source-tag">스냅샷 확인 중</span></header>
+    <div id="status" role="status">데이터를 불러오는 중입니다…</div>
+    <section class="filters" aria-label="조회 필터">
+      <div class="filter-row"><div><span class="filter-label">조회 기간</span><div class="periods" id="periods" role="group" aria-label="기간"><button data-period="1">1일</button><button class="selected" data-period="7">7일</button><button data-period="30">30일</button><button data-period="90">90일</button><button data-period="all">전체</button></div></div><label class="date-label">기준일 · KST <input id="date" type="date" aria-label="기준일"></label><label class="mode-label">계정 범위<select id="mode"><option value="all">그룹 합산 · 공식 + 멤버</option><option value="official">공식 계정만</option><option value="members">개별 멤버</option></select></label></div>
+      <div class="filter-bottom"><div id="groups" class="group-options" aria-label="그룹 필터"></div><details class="account-filter"><summary>개별 계정 선택</summary><div id="accounts"></div></details></div>
+    </section>
+    <div class="range-caption"><span id="range-label"></span><span id="collection-time"></span></div>
+    <section id="overview" class="overview" aria-label="데이터 요약"></section>
+    <section id="followers" class="dashboard-section"><div class="section-heading"><div><span class="section-number">01</span><h2>팔로워의 흐름</h2></div><p>그룹 고유 인원이 아닌 계정 팔로워 합계입니다.</p></div><div id="follower-charts" class="charts-grid"></div></section>
+    <section id="activity" class="dashboard-section"><div class="section-heading"><div><span class="section-number">02</span><h2>활동과 도달</h2></div><p>게시일 기준으로 묶은 실제 수집 게시물입니다.</p></div><div id="activity-charts" class="charts-grid"></div></section>
+    <section id="reactions" class="dashboard-section"><div class="section-heading"><div><span class="section-number">03</span><h2>반응의 깊이</h2></div><p>게시물 누적 카운트와 당일 증가분을 구분합니다.</p></div><div id="reaction-charts" class="charts-grid"></div></section>
+    <section id="comparison" class="dashboard-section"><div class="section-heading"><div><span class="section-number">04</span><h2>그룹별 비교</h2></div><button id="download" class="outline-button">↓ CSV 다운로드</button></div><p class="table-note" id="table-range"></p><div class="table-wrap"><table id="comparison-table"></table></div></section>
+    <section id="top-posts" class="dashboard-section"><div class="section-heading"><div><span class="section-number">05</span><h2>인기 게시물 <span class="light">Top 10</span></h2></div><label class="sort-label">정렬<select id="top-sort"><option value="views">조회수</option><option value="likes">좋아요</option><option value="engagement">참여율</option><option value="createdAt">게시일</option></select></label></div><div id="post-list"></div></section>
+    <section id="quality" class="dashboard-section"><div class="section-heading"><div><span class="section-number">06</span><h2>수집 품질과 누락</h2></div><span class="warning-badge">완결성 미확인</span></div><p class="table-note">요청 성공 횟수는 페이지 종료나 하루 전체 수집 완료를 의미하지 않습니다. 표는 선택 기준일의 요청 기록이며, 대기열은 해당 일자까지 등록된 현재 스냅샷 상태입니다.</p><div class="table-wrap"><table id="quality-table"></table></div><div id="detail-quality" class="detail-quality"></div></section>
+    <footer><span>X Radar <b>·</b> HOLLIN</span><span>Asia/Seoul · 실제 기록만 표시합니다.</span><a id="sheet-link" target="_blank" rel="noopener noreferrer">원본 시트 ↗</a></footer>
+  </main>
+  <dialog id="chart-dialog"><button id="close-dialog" class="outline-button">닫기 ×</button><div id="expanded-chart"></div></dialog>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
