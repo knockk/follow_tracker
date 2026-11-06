@@ -5,6 +5,7 @@ const fmt = (v,decimals=0)=>v===null||v===undefined?'미수집':Number(v).toLoca
 const compact = n=>Math.abs(n)>=1e6?(n/1e6).toFixed(1)+'M':Math.abs(n)>=1e3?(n/1e3).toFixed(1)+'k':fmt(n,1);
 const unitFmt = (v,unit)=>v==null?'N/A':fmt(v,unit==='%'?2:0)+(unit==='%'?'%':'');
 let data, current, state, sort={key:'views',direction:-1};
+let chartSequence=0;
 const allGroups=[];
 const color = name=>COLORS[allGroups.indexOf(name)%COLORS.length];
 const card = (label,value,note,accent='')=>`<article class="stat-card"><div class="stat-label">${label}<span class="accent">${accent}</span></div><div class="stat-value">${value}</div><div class="stat-note">${note}</div></article>`;
@@ -13,21 +14,28 @@ function chartMarkup(config,hidden=new Set()) {
   const series=current.series.filter(s=>!hidden.has(s.name));
   const value=p=>increment?p.increments[key]:p[key];
   const values=series.flatMap(s=>s.points.map(value)).filter(v=>v!==null&&v!==undefined);
+  const otherValues=series.filter(s=>s.name!=='플레이브').flatMap(s=>s.points.map(value)).filter(v=>v!=null);
+  const axisValues=otherValues.length?otherValues:values;
+  let lo=Math.min(0,...axisValues),hi=Math.max(0,...axisValues);
+  if(lo===hi)hi=lo+1;else {if(hi>0)hi*=1.12;if(lo<0)lo*=1.12;}
+  const clipped=series.some(s=>s.name==='플레이브'&&s.points.some(p=>value(p)!=null&&(value(p)>hi||value(p)<lo)));
   let drawing='';
-  if(!values.length) drawing='<div class="chart-empty"><span>표시할 수 있는 기록이 없습니다</span><small>미수집 · 비교 가능한 전일 기록이 없으면 N/A</small></div>';
+  if(!values.length) drawing='<div class="chart-empty" data-chart-surface><span>표시할 수 있는 기록이 없습니다</span><small>미수집 · 비교 가능한 전일 기록이 없으면 N/A</small></div>';
   else {
     const w=800,h=245,l=57,r=18,t=14,b=38,cw=w-l-r,ch=h-t-b;
-    let lo=Math.min(0,...values),hi=Math.max(0,...values);if(lo===hi)hi=lo+1;
+    const clipId='plot-clip-'+(++chartSequence);
+    const bar=current.days.length===1 || ['posts','officialPosts','memberPosts','followerDelta'].includes(key);
+    const barWidth=Math.min(35,cw/(current.days.length* Math.max(series.length,1)+3));
+    const pad=bar&&current.days.length>1?barWidth*series.length/2:0;
     const y=v=>t+ch-(v-lo)/(hi-lo)*ch;
-    const x=i=>l+(current.days.length===1?cw/2:(i/(current.days.length-1))*cw);
+    const x=i=>l+(current.days.length===1?cw/2:pad+(i/(current.days.length-1))*(cw-2*pad));
     const grid=Array.from({length:5},(_,i)=>{
       const v=lo+(hi-lo)*i/4, yy=y(v);
       return `<line x1="${l}" x2="${w-r}" y1="${yy}" y2="${yy}" stroke="#f0edf5"/><text x="${l-10}" y="${yy+3}" text-anchor="end">${esc(compact(v))}${unit==='%'?'%':''}</text>`;
     }).join('');
     const ticks=[...new Set([0,Math.floor((current.days.length-1)/2),current.days.length-1])].map(i=>`<text x="${x(i)}" y="${h-12}" text-anchor="middle">${current.days[i]}</text>`).join('');
     const marks=series.map((s,si)=>{
-      const fill=color(s.name), bar=current.days.length===1 || ['posts','officialPosts','memberPosts','followerDelta'].includes(key);
-      const barWidth=Math.min(35,cw/(current.days.length* Math.max(series.length,1)+3));
+      const fill=color(s.name);
       let pen=false,path='';
       const dots=s.points.map((p,i)=>{
         const v=value(p);if(v==null){pen=false;return '';}
@@ -39,13 +47,48 @@ function chartMarkup(config,hidden=new Set()) {
       }).join('');
       return (!bar?`<path d="${path}" fill="none" stroke="${fill}" stroke-width="2"/>`:'')+dots;
     }).join('');
-    drawing=`<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title)}: ${esc(current.start)}부터 ${esc(current.end)}"><title>${esc(title)}. 미수집 일자는 연결하지 않습니다.</title>${grid}${ticks}${marks}</svg>`;
+    drawing=`<svg data-chart-surface data-x-start="${x(0)}" data-x-end="${x(current.days.length-1)}" data-axis-max="${hi}" viewBox="0 0 ${w} ${h}" role="img" tabindex="0" aria-label="${esc(title)}: ${esc(current.start)}부터 ${esc(current.end)}"><title>${esc(title)}. 미수집 일자는 연결하지 않습니다. 방향키로 날짜별 수치를 확인할 수 있습니다.</title><defs><clipPath id="${clipId}"><rect x="${l-1}" y="${t}" width="${cw+2}" height="${ch+1}"/></clipPath></defs>${grid}${ticks}<g class="plot-marks" clip-path="url(#${clipId})">${marks}</g><line class="hover-guide" x1="0" x2="0" y1="${t}" y2="${t+ch}" stroke="#b8acd1" stroke-dasharray="4 4" visibility="hidden"/></svg>`;
   }
   const legend=current.series.map(s=>`<button data-legend="${esc(s.name)}" class="${hidden.has(s.name)?'hidden':''}" aria-pressed="${!hidden.has(s.name)}"><span class="group-dot" style="background:${color(s.name)}"></span>${esc(s.name)}</button>`).join('');
-  return `<div class="chart-title"><div><h3>${esc(title)}</h3><p>${esc(description)}</p></div><button class="zoom" aria-label="${esc(title)} 확대">⤢</button></div>${drawing}<div class="legend">${legend}</div><div class="chart-footnote">${increment?'동일 게시물의 실제 전일·당일 스냅샷 차분. 비교 쌍이 없으면 N/A.':'값이 없는 날짜는 미수집입니다. 게시물 지표는 확보한 기록의 부분 합계입니다.'}</div>`;
+  return `<div class="chart-title"><div><h3>${esc(title)}</h3><p>${esc(description)}</p></div><button class="zoom" aria-label="${esc(title)} 확대">⤢</button></div>${drawing}<div class="legend">${legend}</div>${clipped?'<div class="clipping-note">↥ 플레이브는 세로축 범위 밖을 잘라 표시합니다. 마우스를 올리면 실제 수치를 볼 수 있습니다.</div>':''}<div class="chart-footnote">${increment?'동일 게시물의 실제 전일·당일 스냅샷 차분. 비교 쌍이 없으면 N/A.':'값이 없는 날짜는 미수집입니다. 게시물 지표는 확보한 기록의 부분 합계입니다.'}</div>`;
 }
 function mountChart(element,config,hidden=new Set(),expanded=false){
   element.innerHTML=chartMarkup(config,hidden);
+  const surface=element.querySelector('[data-chart-surface]');
+  const tooltip=document.createElement('div');tooltip.className='chart-tooltip';tooltip.role='tooltip';tooltip.hidden=true;element.append(tooltip);
+  const guide=element.querySelector('.hover-guide');
+  let activeIndex=current.days.length-1;
+  const show=(index,clientX,clientY)=>{
+    activeIndex=index;
+    const unit=config.unit==='%'?'%':['followers','followerDelta'].includes(config.key)?'명':['views','averageViews'].includes(config.key)?'회':'건';
+    const rows=current.series.filter(s=>!hidden.has(s.name)).map(s=>{
+      const p=s.points[index],v=config.increment?p.increments[config.key]:p[config.key];
+      return `<div><span><i style="background:${color(s.name)}"></i>${esc(s.name)}</span><strong>${v==null?'미수집 / N/A':fmt(v,unit==='%'?2:config.key==='averageViews'?1:0)+unit}</strong></div>`;
+    }).join('');
+    tooltip.innerHTML=`<header>${current.days[index]} <small>KST</small></header>${rows}`;tooltip.hidden=false;
+    const bounds=element.getBoundingClientRect();
+    const left=Math.max(8,Math.min(clientX-bounds.left+14,bounds.width-tooltip.offsetWidth-8));
+    const top=Math.max(8,Math.min(clientY-bounds.top-tooltip.offsetHeight-12,bounds.height-tooltip.offsetHeight-8));
+    tooltip.style.left=left+'px';tooltip.style.top=top+'px';
+    if(guide){const a=Number(surface.dataset.xStart),b=Number(surface.dataset.xEnd),x=a+(current.days.length===1?0:index/(current.days.length-1)*(b-a));guide.setAttribute('x1',x);guide.setAttribute('x2',x);guide.setAttribute('visibility','visible');}
+  };
+  const move=event=>{
+    const bounds=surface.getBoundingClientRect();
+    const a=Number(surface.dataset.xStart??0),b=Number(surface.dataset.xEnd??800);
+    const x=(event.clientX-bounds.left)/bounds.width*800;
+    const i=current.days.length===1?0:Math.round(Math.max(0,Math.min(1,(x-a)/(b-a)))*(current.days.length-1));
+    show(i,event.clientX,event.clientY);
+  };
+  const hide=()=>{tooltip.hidden=true;guide?.setAttribute('visibility','hidden');};
+  surface?.addEventListener('pointermove',move);surface?.addEventListener('pointerdown',move);surface?.addEventListener('pointerleave',hide);
+  surface?.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){hide();return;}
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    event.preventDefault();
+    const index=event.key==='Home'?0:event.key==='End'?current.days.length-1:Math.max(0,Math.min(current.days.length-1,activeIndex+(event.key==='ArrowLeft'?-1:1)));
+    const bounds=surface.getBoundingClientRect();show(index,bounds.left+bounds.width/2,bounds.top+bounds.height/2);
+  });
+  surface?.addEventListener('blur',hide);
   element.querySelectorAll('[data-legend]').forEach(b=>b.addEventListener('click',()=>{
     const n=b.dataset.legend;hidden.has(n)?hidden.delete(n):hidden.add(n);mountChart(element,config,hidden,expanded);
   }));
