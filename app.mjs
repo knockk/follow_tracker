@@ -163,7 +163,8 @@ function render(){
     card('상세 수집 대기',fmt(pending),'스냅샷의 PENDING 상태 · 미완료','◷');
   $('#range-label').textContent=`${current.start} — ${current.end} · KST · ${current.accounts.length}개 계정`;
   $('#collection-time').textContent=`마지막 성공 요청 ${data.source.lastSuccessfulRequestAt?.replace('T',' ').slice(0,19)||'기록 없음'} KST · 전체 수집 완료 시각 아님`;
-  $('#status').innerHTML=`<strong>첨부 스냅샷 · 실시간 연결 전</strong> &nbsp; 기준일 프로필 ${profiles}/${coverage.length} · 게시물 이력 보유 ${stored}/${coverage.length} · 상세 대기 ${pending}건. 일별 수집 완결성은 확인되지 않았습니다. 누적 반응은 게시일별 묶음의 최신 관측값이며, 당일 증가분과 다릅니다.`;
+  const sourceTitle=data.source.syncMode==='daily'?`매일 오전 10시 갱신 · 최근 반영 ${esc(data.source.refreshedAt?.replace('T',' ').slice(0,16))} KST`:'첨부 스냅샷 · 실시간 연결 전';
+  $('#status').innerHTML=`<strong>${sourceTitle}</strong> &nbsp; 기준일 프로필 ${profiles}/${coverage.length} · 게시물 이력 보유 ${stored}/${coverage.length} · 상세 대기 ${pending}건. 일별 수집 완결성은 확인되지 않았습니다. 누적 반응은 게시일별 묶음의 최신 관측값이며, 당일 증가분과 다릅니다.`;
   drawCharts();drawTable();drawPosts();drawQuality();
 }
 function download(){
