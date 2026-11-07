@@ -35,6 +35,17 @@ export function countryDistribution(data,analysis,type='all') {
       countries:[...counts].map(([country,count])=>({country,count,share:count/total*100})).sort((a,b)=>b.count-a.count)};
   });
 }
+export function languageRegionDistribution(data,analysis,type='all') {
+  const selected=new Set(analysis.accounts.map(a=>a.key));
+  const rows=(data.languageRegions?.rows||[]).filter(r=>selected.has(r.handle)&&r.day>=analysis.start&&r.day<=analysis.end&&(type==='all'||r.type===type));
+  return [...new Set(analysis.accounts.map(a=>a.group))].map(group=>{
+    const grouped=rows.filter(r=>r.group===group),counts=new Map();
+    for(const r of grouped){const region=r.region||null;counts.set(region,(counts.get(region)||0)+r.count);}
+    const total=grouped.reduce((n,r)=>n+r.count,0),unknown=counts.get(null)||0;
+    return {group,total,unknown,classified:total-unknown,coverage:total?(total-unknown)/total*100:null,
+      regions:[...counts].map(([region,count])=>({region,count,share:count/total*100,...(data.languageRegions?.labels?.[region]||{})})).sort((a,b)=>b.count-a.count)};
+  });
+}
 export function analyze(data, options) {
   const {end, period='7', groups=[], mode='all', handles=[]} = options;
   const accounts = data.accounts.filter(a => (!groups.length || groups.includes(a.group)) &&

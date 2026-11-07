@@ -1,4 +1,4 @@
-import {analyze, COLORS, METRICS, rate, chartDates, countryDistribution} from './metrics.mjs';
+import {analyze, COLORS, METRICS, rate, chartDates, languageRegionDistribution} from './metrics.mjs';
 import {loadRadarData} from './bridge.mjs';
 const $ = s=>document.querySelector(s);
 const esc = v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -168,11 +168,10 @@ function render(){
   drawCharts();drawTable();drawPosts();drawQuality();drawGeography();
 }
 function drawGeography(){
-  const distribution=countryDistribution(data,current,$('#country-type').value);
-  const total=distribution.reduce((n,g)=>n+g.total,0),known=distribution.reduce((n,g)=>n+g.known,0);
-  $('#country-summary').textContent=total?`수집 참여활동 ${fmt(total)}건 · 국가 표시 확인 ${fmt(known)}건 · 미확인 ${fmt(total-known)}건. 국가 정보는 조회 시점의 값이며 활동 당시와 다를 수 있습니다.`:'선택 수집일·계정 범위에 저장된 참여활동이 없습니다. 국가별 0건으로 해석할 수 없습니다.';
-  const names={...{'South Korea':'대한민국','Korea':'대한민국','Republic of Korea':'대한민국','United States':'미국','United States of America':'미국','Japan':'일본','China':'중국','Taiwan':'대만','Thailand':'태국','Indonesia':'인도네시아','Philippines':'필리핀','Vietnam':'베트남','Malaysia':'말레이시아','Singapore':'싱가포르','India':'인도','Australia':'호주','United Kingdom':'영국','Canada':'캐나다','Brazil':'브라질','France':'프랑스','Germany':'독일','Mexico':'멕시코'},...(data.geography?.labels||{})};
-  $('#country-cards').innerHTML=distribution.map(g=>`<article class="country-card" data-country-group="${esc(g.group)}"><header><h3><span class="group-dot" style="background:${color(g.group)}"></span>${esc(g.group)}</h3><span>${g.total?fmt(g.total)+'건':'활동 미수집'}</span></header>${g.total?`<p class="country-coverage">국가 정보 확인 ${fmt(g.coverage,1)}% · ${fmt(g.known)}/${fmt(g.total)}건</p><div class="country-bars">${g.countries.map(c=>`<div class="country-row"><div><span>${esc(c.country?names[c.country]||c.country:'미확인')}</span><strong>${fmt(c.count)}건 <small>${fmt(c.share,1)}%</small></strong></div><div class="country-track"><span style="width:${c.share}%;background:${c.country?color(g.group):'#d9d3e4'}"></span></div></div>`).join('')}</div>${!g.known?'<p class="country-empty-note">현재 자료에 국가 정보가 없습니다.<br>언어·닉네임으로 국가를 추정하지 않습니다.</p>':''}`:'<div class="country-no-data">참여활동 기록이 필요합니다.<small>국가 분포와 비율을 계산할 수 없습니다.</small></div>'}</article>`).join('');
+  const distribution=languageRegionDistribution(data,current,$('#country-type').value);
+  const total=distribution.reduce((n,g)=>n+g.total,0),classified=distribution.reduce((n,g)=>n+g.classified,0);
+  $('#country-summary').textContent=total?`댓글·멘션 ${fmt(total)}건 · 언어 기반 분류 ${fmt(classified)}건 · 언어 미확인 ${fmt(total-classified)}건. 이모지·언어 불명은 추정에서 제외하며, 비율의 분모에는 미확인 글도 포함합니다.`:'선택 수집일·계정 범위에 저장된 댓글·멘션이 없습니다. 국가별 0건으로 해석할 수 없습니다.';
+  $('#country-cards').innerHTML=distribution.map(g=>`<article class="country-card" data-country-group="${esc(g.group)}"><header><h3><span class="group-dot" style="background:${color(g.group)}"></span>${esc(g.group)}</h3><span>${g.total?fmt(g.total)+'건':'활동 미수집'}</span></header>${g.total?`<p class="country-coverage">언어 분류 가능 ${fmt(g.coverage,1)}% · ${fmt(g.classified)}/${fmt(g.total)}건</p><div class="country-bars">${g.regions.map(c=>`<div class="country-row"><div><span title="${esc(c.language?'저장된 언어: '+c.language:'이모지·언어 불명·미지원 태그')}">${esc(c.region?c.label||c.region:'언어 미확인')}</span><strong>${fmt(c.count)}건 <small>${fmt(c.share,1)}%</small></strong></div><div class="country-track"><span style="width:${c.share}%;background:${c.region?color(g.group):'#d9d3e4'}"></span></div></div>`).join('')}</div><p class="country-empty-note">언어를 단서로 한 추정입니다.<br>실제 국가·국적·거주지를 확인한 값이 아닙니다.</p>`:'<div class="country-no-data">댓글·멘션 기록이 필요합니다.<small>국가·지역 추정 비율을 계산할 수 없습니다.</small></div>'}</article>`).join('');
 }
 function download(){
   const cell=v=>'"'+String(v??'N/A').replace(/^[=+\-@]/,"'$&").replaceAll('"','""')+'"';
