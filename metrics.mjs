@@ -19,6 +19,22 @@ export function latestSamples(data) {
   for(const s of data.samples) if(!result.has(s.id) || result.get(s.id).day <= s.day) result.set(s.id,s);
   return result;
 }
+export function chartDates(analysis, key, increment=false) {
+  // A lone real observation is a dated snapshot, never a fabricated trend line.
+  const observed=analysis.days.filter((d,i)=>analysis.series.some(s=>(increment?s.points[i].increments[key]:s.points[i][key])!=null));
+  return observed.length===1 ? observed : analysis.days;
+}
+export function countryDistribution(data,analysis,type='all') {
+  const selected=new Set(analysis.accounts.map(a=>a.key));
+  const rows=(data.geography?.rows||[]).filter(r=>selected.has(r.handle)&&r.day>=analysis.start&&r.day<=analysis.end&&(type==='all'||r.type===type));
+  return [...new Set(analysis.accounts.map(a=>a.group))].map(group=>{
+    const grouped=rows.filter(r=>r.group===group),counts=new Map();
+    for(const r of grouped){const name=r.country||null;counts.set(name,(counts.get(name)||0)+r.count);}
+    const total=grouped.reduce((n,r)=>n+r.count,0),unknown=counts.get(null)||0;
+    return {group,total,unknown,known:total-unknown,coverage:total?(total-unknown)/total*100:null,
+      countries:[...counts].map(([country,count])=>({country,count,share:count/total*100})).sort((a,b)=>b.count-a.count)};
+  });
+}
 export function analyze(data, options) {
   const {end, period='7', groups=[], mode='all', handles=[]} = options;
   const accounts = data.accounts.filter(a => (!groups.length || groups.includes(a.group)) &&

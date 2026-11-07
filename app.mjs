@@ -1,4 +1,5 @@
-import {analyze, COLORS, METRICS, rate, strictSum} from './metrics.mjs';
+import {analyze, COLORS, METRICS, rate, chartDates, countryDistribution} from './metrics.mjs';
+import {loadRadarData} from './bridge.mjs';
 const $ = s=>document.querySelector(s);
 const esc = v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (v,decimals=0)=>v===null||v===undefined?'미수집':Number(v).toLocaleString('ko-KR',{maximumFractionDigits:decimals});
@@ -8,11 +9,13 @@ let data, current, state, sort={key:'views',direction:-1};
 let chartSequence=0;
 const allGroups=[];
 const color = name=>COLORS[allGroups.indexOf(name)%COLORS.length];
-const card = (label,value,note,accent='')=>`<article class="stat-card"><div class="stat-label">${label}<span class="accent">${accent}</span></div><div class="stat-value">${value}</div><div class="stat-note">${note}</div></article>`;
 function chartMarkup(config,hidden=new Set()) {
   const {title,description,key,unit='',increment=false}=config;
   const series=current.series.filter(s=>!hidden.has(s.name));
   const value=p=>increment?p.increments[key]:p[key];
+  const days=chartDates(current,key,increment),singleObservation=days.length===1&&current.days.length>1;
+  const indices=days.map(d=>current.days.indexOf(d));
+  const displayedSeries=series.map(s=>({...s,points:indices.map(i=>s.points[i])}));
   const values=series.flatMap(s=>s.points.map(value)).filter(v=>v!==null&&v!==undefined);
   const otherValues=series.filter(s=>s.name!=='플레이브').flatMap(s=>s.points.map(value)).filter(v=>v!=null);
   const axisValues=otherValues.length?otherValues:values;
@@ -24,17 +27,17 @@ function chartMarkup(config,hidden=new Set()) {
   else {
     const w=800,h=245,l=57,r=18,t=14,b=38,cw=w-l-r,ch=h-t-b;
     const clipId='plot-clip-'+(++chartSequence);
-    const bar=current.days.length===1 || ['posts','officialPosts','memberPosts','followerDelta'].includes(key);
-    const barWidth=Math.min(35,cw/(current.days.length* Math.max(series.length,1)+3));
-    const pad=bar&&current.days.length>1?barWidth*series.length/2:0;
+    const bar=days.length===1 || ['posts','officialPosts','memberPosts','followerDelta'].includes(key);
+    const barWidth=Math.min(35,cw/(days.length* Math.max(series.length,1)+3));
+    const pad=bar&&days.length>1?barWidth*series.length/2:0;
     const y=v=>t+ch-(v-lo)/(hi-lo)*ch;
-    const x=i=>l+(current.days.length===1?cw/2:pad+(i/(current.days.length-1))*(cw-2*pad));
+    const x=i=>l+(days.length===1?cw/2:pad+(i/(days.length-1))*(cw-2*pad));
     const grid=Array.from({length:5},(_,i)=>{
       const v=lo+(hi-lo)*i/4, yy=y(v);
       return `<line x1="${l}" x2="${w-r}" y1="${yy}" y2="${yy}" stroke="#f0edf5"/><text x="${l-10}" y="${yy+3}" text-anchor="end">${esc(compact(v))}${unit==='%'?'%':''}</text>`;
     }).join('');
-    const ticks=[...new Set([0,Math.floor((current.days.length-1)/2),current.days.length-1])].map(i=>`<text x="${x(i)}" y="${h-12}" text-anchor="middle">${current.days[i]}</text>`).join('');
-    const marks=series.map((s,si)=>{
+    const ticks=[...new Set([0,Math.floor((days.length-1)/2),days.length-1])].map(i=>`<text x="${x(i)}" y="${h-12}" text-anchor="middle">${days[i]}</text>`).join('');
+    const marks=displayedSeries.map((s,si)=>{
       const fill=color(s.name);
       let pen=false,path='';
       const dots=s.points.map((p,i)=>{
@@ -43,40 +46,42 @@ function chartMarkup(config,hidden=new Set()) {
         const tooltip=esc(`${s.name} · ${p.day} · ${unitFmt(v,unit)}`);
         path+=(pen?'L':'M')+xx+','+yy+' ';pen=true;
         return bar?`<rect x="${xx+(si-(series.length-1)/2)*barWidth-barWidth*.4}" y="${Math.min(yy,y(0))}" width="${barWidth*.8}" height="${Math.max(1,Math.abs(yy-y(0)))}" rx="2" fill="${fill}" opacity=".85"><title>${tooltip}</title></rect>`:
-          `<circle cx="${xx}" cy="${yy}" r="${current.days.length>100?1.8:3.2}" fill="${fill}" stroke="white" stroke-width="1.5"><title>${tooltip}</title></circle>`;
+          `<circle cx="${xx}" cy="${yy}" r="${days.length>100?1.8:3.2}" fill="${fill}" stroke="white" stroke-width="1.5"><title>${tooltip}</title></circle>`;
       }).join('');
       return (!bar?`<path d="${path}" fill="none" stroke="${fill}" stroke-width="2"/>`:'')+dots;
     }).join('');
-    drawing=`<svg data-chart-surface data-x-start="${x(0)}" data-x-end="${x(current.days.length-1)}" data-axis-max="${hi}" viewBox="0 0 ${w} ${h}" role="img" tabindex="0" aria-label="${esc(title)}: ${esc(current.start)}부터 ${esc(current.end)}"><title>${esc(title)}. 미수집 일자는 연결하지 않습니다. 방향키로 날짜별 수치를 확인할 수 있습니다.</title><defs><clipPath id="${clipId}"><rect x="${l-1}" y="${t}" width="${cw+2}" height="${ch+1}"/></clipPath></defs>${grid}${ticks}<g class="plot-marks" clip-path="url(#${clipId})">${marks}</g><line class="hover-guide" x1="0" x2="0" y1="${t}" y2="${t+ch}" stroke="#b8acd1" stroke-dasharray="4 4" visibility="hidden"/></svg>`;
+    drawing=`<svg data-chart-surface data-x-start="${x(0)}" data-x-end="${x(days.length-1)}" data-axis-max="${hi}" data-observed-days="${days.length}" viewBox="0 0 ${w} ${h}" role="img" tabindex="0" aria-label="${esc(title)}: ${esc(current.start)}부터 ${esc(current.end)}"><title>${esc(title)}. 미수집 일자는 연결하지 않습니다. 방향키로 날짜별 수치를 확인할 수 있습니다.</title><defs><clipPath id="${clipId}"><rect x="${l-1}" y="${t}" width="${cw+2}" height="${ch+1}"/></clipPath></defs>${grid}${ticks}<g class="plot-marks" clip-path="url(#${clipId})">${marks}</g><line class="hover-guide" x1="0" x2="0" y1="${t}" y2="${t+ch}" stroke="#b8acd1" stroke-dasharray="4 4" visibility="hidden"/></svg>`;
   }
   const legend=current.series.map(s=>`<button data-legend="${esc(s.name)}" class="${hidden.has(s.name)?'hidden':''}" aria-pressed="${!hidden.has(s.name)}"><span class="group-dot" style="background:${color(s.name)}"></span>${esc(s.name)}</button>`).join('');
-  return `<div class="chart-title"><div><h3>${esc(title)}</h3><p>${esc(description)}</p></div><button class="zoom" aria-label="${esc(title)} 확대">⤢</button></div>${drawing}<div class="legend">${legend}</div>${clipped?'<div class="clipping-note">↥ 플레이브는 세로축 범위 밖을 잘라 표시합니다. 마우스를 올리면 실제 수치를 볼 수 있습니다.</div>':''}<div class="chart-footnote">${increment?'동일 게시물의 실제 전일·당일 스냅샷 차분. 비교 쌍이 없으면 N/A.':'값이 없는 날짜는 미수집입니다. 게시물 지표는 확보한 기록의 부분 합계입니다.'}</div>`;
+  const displayTitle=singleObservation&&key==='followers'?'팔로워 총수 · '+days[0]+' 기록':title;
+  return `<div class="chart-title"><div><h3>${esc(displayTitle)}</h3><p>${esc(description)}</p></div><button class="zoom" aria-label="${esc(title)} 확대">⤢</button></div>${singleObservation?`<div class="snapshot-note">선택 ${current.days.length}일 중 기록 1일 · 하루치 막대로 표시합니다. 추이는 서로 다른 날짜의 기록이 필요합니다.</div>`:''}${drawing}<div class="legend">${legend}</div>${clipped?'<div class="clipping-note">↥ 플레이브는 세로축 범위 밖을 잘라 표시합니다. 마우스를 올리면 실제 수치를 볼 수 있습니다.</div>':''}<div class="chart-footnote">${increment?'동일 게시물의 실제 전일·당일 스냅샷 차분. 비교 쌍이 없으면 N/A.':'값이 없는 날짜는 미수집입니다. 게시물 지표는 확보한 기록의 부분 합계입니다.'}</div>`;
 }
 function mountChart(element,config,hidden=new Set(),expanded=false){
   element.innerHTML=chartMarkup(config,hidden);
   const surface=element.querySelector('[data-chart-surface]');
   const tooltip=document.createElement('div');tooltip.className='chart-tooltip';tooltip.role='tooltip';tooltip.hidden=true;element.append(tooltip);
   const guide=element.querySelector('.hover-guide');
-  let activeIndex=current.days.length-1;
+  const days=chartDates(current,config.key,config.increment);
+  let activeIndex=days.length-1;
   const show=(index,clientX,clientY)=>{
     activeIndex=index;
     const unit=config.unit==='%'?'%':['followers','followerDelta'].includes(config.key)?'명':['views','averageViews'].includes(config.key)?'회':'건';
     const rows=current.series.filter(s=>!hidden.has(s.name)).map(s=>{
-      const p=s.points[index],v=config.increment?p.increments[config.key]:p[config.key];
+      const p=s.points[current.days.indexOf(days[index])],v=config.increment?p.increments[config.key]:p[config.key];
       return `<div><span><i style="background:${color(s.name)}"></i>${esc(s.name)}</span><strong>${v==null?'미수집 / N/A':fmt(v,unit==='%'?2:config.key==='averageViews'?1:0)+unit}</strong></div>`;
     }).join('');
-    tooltip.innerHTML=`<header>${current.days[index]} <small>KST</small></header>${rows}`;tooltip.hidden=false;
+    tooltip.innerHTML=`<header>${days[index]} <small>KST</small></header>${rows}`;tooltip.hidden=false;
     const bounds=element.getBoundingClientRect();
     const left=Math.max(8,Math.min(clientX-bounds.left+14,bounds.width-tooltip.offsetWidth-8));
     const top=Math.max(8,Math.min(clientY-bounds.top-tooltip.offsetHeight-12,bounds.height-tooltip.offsetHeight-8));
     tooltip.style.left=left+'px';tooltip.style.top=top+'px';
-    if(guide){const a=Number(surface.dataset.xStart),b=Number(surface.dataset.xEnd),x=a+(current.days.length===1?0:index/(current.days.length-1)*(b-a));guide.setAttribute('x1',x);guide.setAttribute('x2',x);guide.setAttribute('visibility','visible');}
+    if(guide){const a=Number(surface.dataset.xStart),b=Number(surface.dataset.xEnd),x=a+(days.length===1?0:index/(days.length-1)*(b-a));guide.setAttribute('x1',x);guide.setAttribute('x2',x);guide.setAttribute('visibility','visible');}
   };
   const move=event=>{
     const bounds=surface.getBoundingClientRect();
     const a=Number(surface.dataset.xStart??0),b=Number(surface.dataset.xEnd??800);
     const x=(event.clientX-bounds.left)/bounds.width*800;
-    const i=current.days.length===1?0:Math.round(Math.max(0,Math.min(1,(x-a)/(b-a)))*(current.days.length-1));
+    const i=days.length===1?0:Math.round(Math.max(0,Math.min(1,(x-a)/(b-a)))*(days.length-1));
     show(i,event.clientX,event.clientY);
   };
   const hide=()=>{tooltip.hidden=true;guide?.setAttribute('visibility','hidden');};
@@ -85,7 +90,7 @@ function mountChart(element,config,hidden=new Set(),expanded=false){
     if(event.key==='Escape'){hide();return;}
     if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
     event.preventDefault();
-    const index=event.key==='Home'?0:event.key==='End'?current.days.length-1:Math.max(0,Math.min(current.days.length-1,activeIndex+(event.key==='ArrowLeft'?-1:1)));
+    const index=event.key==='Home'?0:event.key==='End'?days.length-1:Math.max(0,Math.min(days.length-1,activeIndex+(event.key==='ArrowLeft'?-1:1)));
     const bounds=surface.getBoundingClientRect();show(index,bounds.left+bounds.width/2,bounds.top+bounds.height/2);
   });
   surface?.addEventListener('blur',hide);
@@ -156,16 +161,18 @@ function render(){
   const coverage=current.coverage,profiles=coverage.filter(r=>r.profile).length;
   const stored=coverage.filter(r=>r.postsStored>0).length;
   const pending=coverage.reduce((s,r)=>s+r.pending,0);
-  const followers=strictSum(current.series.map(s=>s.summary.followers));
-  $('#overview').innerHTML=card('계정 팔로워 합계',fmt(followers),'중복 팔로워가 포함될 수 있습니다.','↗')+
-    card('프로필 기록',`${profiles}<span class="accent"> / ${coverage.length}</span>`,'선택 기준일 · 실제 저장 여부','◉')+
-    card('관측 게시물',fmt(current.posts.length),'선택 기간 게시일 기준 · 완결성 미확인','▦')+
-    card('상세 수집 대기',fmt(pending),'스냅샷의 PENDING 상태 · 미완료','◷');
   $('#range-label').textContent=`${current.start} — ${current.end} · KST · ${current.accounts.length}개 계정`;
   $('#collection-time').textContent=`마지막 성공 요청 ${data.source.lastSuccessfulRequestAt?.replace('T',' ').slice(0,19)||'기록 없음'} KST · 전체 수집 완료 시각 아님`;
-  const sourceTitle=data.source.syncMode==='daily'?`매일 오전 10시 갱신 · 최근 반영 ${esc(data.source.refreshedAt?.replace('T',' ').slice(0,16))} KST`:'첨부 스냅샷 · 실시간 연결 전';
+  const sourceTitle=data.source.bridgeFailed?'시트 연결 실패 · 보관된 첨부 스냅샷 표시 중':data.source.syncMode==='daily'?`매일 오전 10시 갱신 · 최근 반영 ${esc(data.source.refreshedAt?.replace('T',' ').slice(0,16))} KST`:'첨부 스냅샷 · 실시간 연결 전';
   $('#status').innerHTML=`<strong>${sourceTitle}</strong> &nbsp; 기준일 프로필 ${profiles}/${coverage.length} · 게시물 이력 보유 ${stored}/${coverage.length} · 상세 대기 ${pending}건. 일별 수집 완결성은 확인되지 않았습니다. 누적 반응은 게시일별 묶음의 최신 관측값이며, 당일 증가분과 다릅니다.`;
-  drawCharts();drawTable();drawPosts();drawQuality();
+  drawCharts();drawTable();drawPosts();drawQuality();drawGeography();
+}
+function drawGeography(){
+  const distribution=countryDistribution(data,current,$('#country-type').value);
+  const total=distribution.reduce((n,g)=>n+g.total,0),known=distribution.reduce((n,g)=>n+g.known,0);
+  $('#country-summary').textContent=total?`수집 참여활동 ${fmt(total)}건 · 국가 표시 확인 ${fmt(known)}건 · 미확인 ${fmt(total-known)}건. 국가 정보는 조회 시점의 값이며 활동 당시와 다를 수 있습니다.`:'선택 수집일·계정 범위에 저장된 참여활동이 없습니다. 국가별 0건으로 해석할 수 없습니다.';
+  const names={...{'South Korea':'대한민국','Korea':'대한민국','Republic of Korea':'대한민국','United States':'미국','United States of America':'미국','Japan':'일본','China':'중국','Taiwan':'대만','Thailand':'태국','Indonesia':'인도네시아','Philippines':'필리핀','Vietnam':'베트남','Malaysia':'말레이시아','Singapore':'싱가포르','India':'인도','Australia':'호주','United Kingdom':'영국','Canada':'캐나다','Brazil':'브라질','France':'프랑스','Germany':'독일','Mexico':'멕시코'},...(data.geography?.labels||{})};
+  $('#country-cards').innerHTML=distribution.map(g=>`<article class="country-card" data-country-group="${esc(g.group)}"><header><h3><span class="group-dot" style="background:${color(g.group)}"></span>${esc(g.group)}</h3><span>${g.total?fmt(g.total)+'건':'활동 미수집'}</span></header>${g.total?`<p class="country-coverage">국가 정보 확인 ${fmt(g.coverage,1)}% · ${fmt(g.known)}/${fmt(g.total)}건</p><div class="country-bars">${g.countries.map(c=>`<div class="country-row"><div><span>${esc(c.country?names[c.country]||c.country:'미확인')}</span><strong>${fmt(c.count)}건 <small>${fmt(c.share,1)}%</small></strong></div><div class="country-track"><span style="width:${c.share}%;background:${c.country?color(g.group):'#d9d3e4'}"></span></div></div>`).join('')}</div>${!g.known?'<p class="country-empty-note">현재 자료에 국가 정보가 없습니다.<br>언어·닉네임으로 국가를 추정하지 않습니다.</p>':''}`:'<div class="country-no-data">참여활동 기록이 필요합니다.<small>국가 분포와 비율을 계산할 수 없습니다.</small></div>'}</article>`).join('');
 }
 function download(){
   const cell=v=>'"'+String(v??'N/A').replace(/^[=+\-@]/,"'$&").replaceAll('"','""')+'"';
@@ -175,7 +182,7 @@ function download(){
 }
 async function init(){
   try{
-    const response=await fetch('./data.json',{cache:'no-cache'});if(!response.ok)throw new Error(`HTTP ${response.status}`);data=await response.json();
+    data=await loadRadarData();
     allGroups.push(...new Set(data.accounts.map(a=>a.group)));
     state={end:data.source.defaultDay,period:'7',groups:[...allGroups],mode:'all',handles:[]};
     $('#date').value=state.end;$('#date').max=data.source.defaultDay;
@@ -193,7 +200,7 @@ async function init(){
     $('#date').onchange=()=>{if($('#date').validity.valid&&$('#date').value){state.end=$('#date').value;render();}};
     $('#mode').onchange=()=>{state.mode=$('#mode').value;render();};
     $('#periods').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.period=b.dataset.period;$('#periods').querySelectorAll('button').forEach(el=>{el.classList.toggle('selected',el===b);el.setAttribute('aria-pressed',String(el===b));});render();});
-    $('#top-sort').onchange=drawPosts;$('#download').onclick=download;$('#close-dialog').onclick=()=>$('#chart-dialog').close();
+    $('#top-sort').onchange=drawPosts;$('#country-type').onchange=drawGeography;$('#download').onclick=download;$('#close-dialog').onclick=()=>$('#chart-dialog').close();
     render();document.documentElement.dataset.ready='true';
   }catch(error){$('#status').classList.add('error');$('#status').textContent='데이터를 불러오지 못했습니다. 새로고침하거나 데이터 배포 상태를 확인해 주세요.';console.error(error);}
 }
